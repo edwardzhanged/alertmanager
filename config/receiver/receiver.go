@@ -15,6 +15,7 @@ package receiver
 
 import (
 	"github.com/go-kit/log"
+	mongodb "github.com/prometheus/alertmanager/notify/mongoDb"
 
 	commoncfg "github.com/prometheus/common/config"
 
@@ -52,6 +53,10 @@ func BuildReceiverIntegrations(nc config.Receiver, tmpl *template.Template, logg
 			integrations = append(integrations, notify.NewIntegration(n, rs, name, i, nc.Name))
 		}
 	)
+
+	if nc.MongoDbConfig != nil {
+		add("mongodb", 1, nc.MongoDbConfig, func(l log.Logger) (notify.Notifier, error) { return mongodb.New(nc.MongoDbConfig, tmpl, l) })
+	}
 
 	for i, c := range nc.WebhookConfigs {
 		add("webhook", i, c, func(l log.Logger) (notify.Notifier, error) { return webhook.New(c, tmpl, l, httpOpts...) })
