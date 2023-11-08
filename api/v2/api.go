@@ -689,13 +689,13 @@ func (api *API) postSilencesHandler(params silence_ops.PostSilencesParams) middl
 }
 
 type AlertData struct {
-	Receiver          string            `json:"receiver"`
-	Status            string            `json:"status"`
-	Alerts            []Alert           `json:"alerts"`
-	GroupLabels       GroupLabels       `json:"grouplabels"`
-	CommonLabels      CommonLabels      `json:"commonlabels"`
-	CommonAnnotations CommonAnnotations `json:"commonannotations"`
-	ExternalURL       string            `json:"externalurl"`
+	Receiver          string       `json:"receiver"`
+	Status            string       `json:"status"`
+	Alerts            []Alert      `json:"alerts"`
+	GroupLabels       GroupLabels  `json:"grouplabels"`
+	CommonLabels      CommonLabels `json:"commonlabels"`
+	CommonAnnotations Annotations  `json:"commonannotations"`
+	ExternalURL       string       `json:"externalurl"`
 }
 
 type Alert struct {
@@ -719,10 +719,6 @@ type CommonLabels struct {
 	Severity  string `json:"severity"`
 }
 
-type CommonAnnotations struct {
-	Summary string `json:"summary"`
-}
-
 type Labels struct {
 	Instance  string `json:"instance"`
 	AlertName string `json:"alertname"`
@@ -731,14 +727,19 @@ type Labels struct {
 }
 
 type Annotations struct {
-	Summary string `json:"summary"`
+	Operator    string `json:"operator"`
+	Threshold   string `json:"threshold"`
+	Description string `json:"description"`
+	Instance    string `json:"instance"`
+	Metric      string `json:"metric"`
+	Summary     string `json:"summary"`
 }
 type StoredAlerts struct {
 	Time      time.Time
 	AlertData AlertData `json:"alertdata,omitempty"`
 }
 
-func getMongoDbFromReceivers(receivers []config.Receiver) (*mongodb.Collection, error) {
+func getMongoDbFromReceivers(receivers []config.Receiver) (*mongodb.Client, string, string, error) {
 	var (
 		client         *mongodb.Client
 		databaseName   string
@@ -752,12 +753,13 @@ func getMongoDbFromReceivers(receivers []config.Receiver) (*mongodb.Collection, 
 			clientOptions := options.Client().ApplyURI(connectionString).SetServerSelectionTimeout(3 * time.Second)
 			client, _ = mongodb.Connect(context.Background(), clientOptions)
 			if err := client.Ping(context.TODO(), nil); err != nil {
-				return nil, errors.New("can not connect to mongodb")
+				return nil, "", "", errors.New("can not connect to mongodb")
 			}
-			return client.Database(databaseName).Collection(collectionName), nil
+			//return client.Database(databaseName).Collection(collectionName), nil
+			return client, databaseName, collectionName, nil
 		}
 	}
-	return nil, errors.New("no mongodb receiver found")
+	return nil, "", "", errors.New("no mongodb receiver found")
 }
 
 func convertTime(timeString string) (time.Time, error) {
@@ -765,7 +767,8 @@ func convertTime(timeString string) (time.Time, error) {
 }
 
 func (api *API) getStoredAlertsHandler(params stored_alert_ops.GetStoredAlertsParams) middleware.Responder {
-	mongoClient, err := getMongoDbFromReceivers(api.alertmanagerConfig.Receivers)
+	mongoClient, databaseName, collectionName, err := getMongoDbFromReceivers(api.alertmanagerConfig.Receivers)
+	mongoHandler := mongoClient.Database(databaseName).Collection(collectionName)
 	if err != nil {
 		return stored_alert_ops.NewGetStoredAlertsInternalServerError().WithPayload(err.Error())
 	}
@@ -787,10 +790,11 @@ func (api *API) getStoredAlertsHandler(params stored_alert_ops.GetStoredAlertsPa
 		filter["$and"] = append(filter["$and"].([]bson.M), bson.M{"alertdata.commonlabels.instance": regex})
 	}
 	if params.Metric != nil {
-		filter["$and"] = append(filter["$and"].([]bson.M), bson.M{"alertdata.commonannotations.alertname": params.Metric})
+		filter["$and"] = append(filter["$and"].([]bson.M), bson.M{"alertdata.commonannotations.metric": params.Metric})
 	}
 
-	cursor, _ := mongoClient.Find(context.Background(), filter)
+	cursor, _ := mongoHandler.Find(context.Background(), filter)
+	mongoClient.Disconnect(context.Background())
 
 	defer cursor.Close(context.Background())
 	storedAlerts := open_api_models.StoredAlerts{}
@@ -808,6 +812,7 @@ func (api *API) getStoredAlertsHandler(params stored_alert_ops.GetStoredAlertsPa
 		storedAlert := &open_api_models.StoredAlert{Time: timeStringPointer, Alertdata: doc.AlertData}
 		storedAlerts = append(storedAlerts, storedAlert)
 	}
+
 	return stored_alert_ops.NewGetStoredAlertsOK().WithPayload(storedAlerts)
 }
 
@@ -820,10 +825,8 @@ type SeverityAggregation struct {
 }
 
 func (api *API) getSeverityChartHandler(params stored_alert_ops.GetSeverityChartParams) middleware.Responder {
-	mongoClient, err := getMongoDbFromReceivers(api.alertmanagerConfig.Receivers)
-	if err != nil {
-		return stored_alert_ops.NewGetStoredAlertsInternalServerError().WithPayload(err.Error())
-	}
+	mongoClient, databaseName, collectionName, err := getMongoDbFromReceivers(api.alertmanagerConfig.Receivers)
+	mongoHandler := mongoClient.Database(databaseName).Collection(collectionName)
 	startTime, _ := convertTime(params.TimeStart.String())
 	endTime, _ := convertTime(params.TimeEnd.String())
 	pipeline := mongodb.Pipeline{
@@ -841,7 +844,7 @@ func (api *API) getSeverityChartHandler(params stored_alert_ops.GetSeverityChart
 			"count": bson.M{"$sum": 1},
 		}}},
 	}
-	cur, err := mongoClient.Aggregate(context.Background(), pipeline)
+	cur, err := mongoHandler.Aggregate(context.Background(), pipeline)
 	if err != nil {
 		return stored_alert_ops.NewGetSeverityChartInternalServerError().WithPayload(err.Error())
 	}
@@ -876,7 +879,7 @@ func (api *API) getSeverityChartHandler(params stored_alert_ops.GetSeverityChart
 	sort.SliceStable(severityDays, func(i, j int) bool {
 		return severityDays[i].Date < severityDays[j].Date
 	})
-
+	mongoClient.Disconnect(context.Background())
 	return stored_alert_ops.NewGetSeverityChartOK().WithPayload(severityDays)
 }
 
