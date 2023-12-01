@@ -11,15 +11,17 @@ import (
 	golangswaggerpaths "path"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
 )
 
 // GetStoredAlertsURL generates an URL for the get stored alerts operation
 type GetStoredAlertsURL struct {
-	Instance  *string
-	Metric    *string
-	Severity  *string
-	TimeEnd   strfmt.DateTime
-	TimeStart strfmt.DateTime
+	Instance    *string
+	Metric      *string
+	Severity    *string
+	SilenceFlag *bool
+	TimeEnd     strfmt.DateTime
+	TimeStart   strfmt.DateTime
 
 	_basePath string
 	// avoid unkeyed usage
@@ -77,6 +79,14 @@ func (o *GetStoredAlertsURL) Build() (*url.URL, error) {
 	}
 	if severityQ != "" {
 		qs.Set("severity", severityQ)
+	}
+
+	var silenceFlagQ string
+	if o.SilenceFlag != nil {
+		silenceFlagQ = swag.FormatBool(*o.SilenceFlag)
+	}
+	if silenceFlagQ != "" {
+		qs.Set("silenceFlag", silenceFlagQ)
 	}
 
 	timeEndQ := o.TimeEnd.String()

@@ -85,6 +85,12 @@ paths:
           type: string
           required: false
           description: metric of the stored alerts
+        - in: query
+          name: silenceFlag
+          type: boolean
+          required: false
+          default: false
+          description: if filter silenced alerts
   /stored_alerts/severity_days:
     get:
       tags:

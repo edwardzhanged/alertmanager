@@ -12,15 +12,23 @@ import (
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
 	"github.com/go-openapi/validate"
 )
 
 // NewGetStoredAlertsParams creates a new GetStoredAlertsParams object
-//
-// There are no default values defined in the spec.
+// with the default values initialized.
 func NewGetStoredAlertsParams() GetStoredAlertsParams {
 
-	return GetStoredAlertsParams{}
+	var (
+		// initialize parameters with default values
+
+		silenceFlagDefault = bool(false)
+	)
+
+	return GetStoredAlertsParams{
+		SilenceFlag: &silenceFlagDefault,
+	}
 }
 
 // GetStoredAlertsParams contains all the bound params for the get stored alerts operation
@@ -44,6 +52,11 @@ type GetStoredAlertsParams struct {
 	  In: query
 	*/
 	Severity *string
+	/*if filter silenced alerts
+	  In: query
+	  Default: false
+	*/
+	SilenceFlag *bool
 	/*endTime of the stored alerts
 	  Required: true
 	  In: query
@@ -79,6 +92,11 @@ func (o *GetStoredAlertsParams) BindRequest(r *http.Request, route *middleware.M
 
 	qSeverity, qhkSeverity, _ := qs.GetOK("severity")
 	if err := o.bindSeverity(qSeverity, qhkSeverity, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
+	qSilenceFlag, qhkSilenceFlag, _ := qs.GetOK("silenceFlag")
+	if err := o.bindSilenceFlag(qSilenceFlag, qhkSilenceFlag, route.Formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -147,6 +165,30 @@ func (o *GetStoredAlertsParams) bindSeverity(rawData []string, hasKey bool, form
 		return nil
 	}
 	o.Severity = &raw
+
+	return nil
+}
+
+// bindSilenceFlag binds and validates parameter SilenceFlag from query.
+func (o *GetStoredAlertsParams) bindSilenceFlag(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: false
+	// AllowEmptyValue: false
+
+	if raw == "" { // empty values pass all other validations
+		// Default values have been previously initialized by NewGetStoredAlertsParams()
+		return nil
+	}
+
+	value, err := swag.ConvertBool(raw)
+	if err != nil {
+		return errors.InvalidType("silenceFlag", "query", "bool", raw)
+	}
+	o.SilenceFlag = &value
 
 	return nil
 }
