@@ -750,7 +750,11 @@ func getMongoDbFromReceivers(receivers []config.Receiver) (*mongodb.Client, stri
 			clientOptions := options.Client().ApplyURI(connectionString).SetServerSelectionTimeout(3 * time.Second)
 			mongoClient, err := mongodb.Connect(context.Background(), clientOptions)
 			if err != nil {
-				return nil, "", "", fmt.Errorf("can not connect to mongodb: %v", err)
+				return nil, "", "", fmt.Errorf("cannot connect to MongoDB: %v", err)
+			}
+			err = mongoClient.Ping(context.Background(), nil)
+			if err != nil {
+				return nil, "", "", fmt.Errorf("can not connect mongodb：%v", err)
 			}
 			return mongoClient, databaseName, collectionName, nil
 		}
@@ -763,6 +767,13 @@ func convertTime(timeString string) (time.Time, error) {
 }
 
 func (api *API) getStoredAlertsHandler(params stored_alert_ops.GetStoredAlertsParams) middleware.Responder {
+	silences, _, err := api.silences.Query()
+	if err != nil {
+		logger := api.requestLogger(params.HTTPRequest)
+		level.Error(logger).Log("msg", "Failed to get silences", "err", err)
+		return stored_alert_ops.NewGetStoredAlertsInternalServerError().WithPayload(err.Error())
+	}
+
 	mongoClient, databaseName, collectionName, err := getMongoDbFromReceivers(api.alertmanagerConfig.Receivers)
 	if err != nil {
 		return stored_alert_ops.NewGetStoredAlertsInternalServerError().WithPayload(err.Error())
@@ -805,8 +816,19 @@ func (api *API) getStoredAlertsHandler(params stored_alert_ops.GetStoredAlertsPa
 			return &timeString
 		}
 		timeStringPointer := timeToStringPointer(alert.Time)
-		storedAlert := &open_api_models.StoredAlert{Time: timeStringPointer, Alertdata: alert.AlertData}
-		storedAlerts = append(storedAlerts, storedAlert)
+		for _, silence := range silences {
+			patterns := make(map[string]bool)
+			for _, matcher := range silence.Matchers {
+				patterns[matcher.Pattern] = true
+			}
+			if *params.SilenceFlag {
+				if _, ok := patterns[alert.AlertData.CommonLabels.AlertName]; ok {
+					continue
+				}
+			}
+			storedAlert := &open_api_models.StoredAlert{Time: timeStringPointer, Alertdata: alert.AlertData}
+			storedAlerts = append(storedAlerts, storedAlert)
+		}
 	}
 	return stored_alert_ops.NewGetStoredAlertsOK().WithPayload(storedAlerts)
 }
